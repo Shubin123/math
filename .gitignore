@@ -1,0 +1,11 @@
+# Upstream checkouts, created by setup.sh at pinned commits
+/formal-math/
+/hesper/
+/openai-math/
+
+# Python
+piece-search/.venv/
+__pycache__/
+*.pyc
+
+.DS_Store

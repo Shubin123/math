@@ -1,0 +1,44 @@
+diff --git a/lakefile.lean b/lakefile.lean
+index 99a17ff..b241eab 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -48,6 +48,17 @@ unsafe def hesperNoCudaImpl : Bool :=
+ @[implemented_by hesperNoCudaImpl]
+ def hesperNoCuda : Bool := false
+ 
++/-- The macOS SDK to link against (overlay from /math): `HESPER_MACOS_SDK`, read at lakefile-load
++    time, or the Command Line Tools default. Lean's bundled lld cannot read the `.tbd` stubs of SDKs
++    that list the `arm64e.x1` architecture (macOS 27), so such machines point this at an older SDK. -/
++unsafe def macosSdkImpl : String :=
++  match unsafeBaseIO (IO.getEnv "HESPER_MACOS_SDK") with
++  | some v => v
++  | none   => "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
++
++@[implemented_by macosSdkImpl]
++def macosSdk : String := "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
++
+ def stdLinkArgs : Array String := Id.run do
+   -- Windows: no native bridge is built (see the `nativeDeps` target —
+   -- `System.Platform.isWindows` early-returns).  Returning an empty
+@@ -82,9 +93,9 @@ def stdLinkArgs : Array String := Id.run do
+              "-Wl,-rpath,@executable_path/.lake/build/native"]
+         ++ commonArgs ++ cudaArgs ++
+         #["-lc++",
+-          "-L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib",
+-          "-F/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks",
+-          "-Wl,-syslibroot,/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
++          s!"-L{macosSdk}/usr/lib",
++          s!"-F{macosSdk}/System/Library/Frameworks",
++          s!"-Wl,-syslibroot,{macosSdk}",
+           "-lobjc",
+           "-framework", "CoreFoundation",
+           "-framework", "Metal",
+@@ -1715,3 +1726,8 @@ lean_exe «wgsl-check» where
+   srcDir := "tools"
+   root := `WgslCheck.Main
+   supportInterpreter := false
++
++-- Exact-rank-mod-p kernel for /math/piece-search (overlay; see the /math README).
++lean_exe «gpu-rank» where
++  root := `GpuRank.Main
++  moreLinkArgs := stdLinkArgs

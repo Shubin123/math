@@ -1,0 +1,31 @@
+diff --git a/eth/lakefile.toml b/eth/lakefile.toml
+index 055ec8b..f9686ee 100644
+--- a/eth/lakefile.toml
++++ b/eth/lakefile.toml
+@@ -14,6 +14,8 @@ defaultTargets = [
+   "Challenge",
+   "Solution",
+   "PaperIndex",
++  "BestThreeSat",
++  "BestThreeSatSolution",
+ ]
+ 
+ [leanOptions]
+@@ -199,4 +201,17 @@ globs = [
+   "WidthThree.+",
+   "NamesInOrder.+",
+   "CountedRoute.+",
++  "BestRate.+",
+ ]
++
++# Trusted: the sharpest bounds for 3-SAT, as definitions in the vocabulary of MainResults. It imports MainResults alone.
++[[lean_lib]]
++name = "BestThreeSat"
++
++# Untrusted: the proof of BestThreeSat.Statement, from proof/maintheorem/BestRate.
++[[lean_lib]]
++name = "BestThreeSatSolution"
++
++# The open target: 3-SAT in polynomial time, with sorry in place of a proof. Not a default target.
++[[lean_lib]]
++name = "PolyChallenge"
