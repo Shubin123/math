@@ -65,13 +65,15 @@ def singlet1() -> np.ndarray:
 
 
 def rowwise(t: np.ndarray) -> np.ndarray:
-    """Rows (x, y), columns (u, v)."""
-    return t.reshape(4, 4)
+    """Rows (x, y), columns (u, v); x, y, u, v range over the gadget's 2^lam0 strings."""
+    n = t.shape[0]
+    return t.reshape(n * n, n * n)
 
 
 def colwise(t: np.ndarray) -> np.ndarray:
     """Rows (x, u), columns (y, v)."""
-    return t.transpose(0, 2, 1, 3).reshape(4, 4)
+    n = t.shape[0]
+    return t.transpose(0, 2, 1, 3).reshape(n * n, n * n)
 
 
 def rank(m: np.ndarray, exact: bool = False, primes: tuple[int, ...] = PRIMES) -> int:
@@ -159,4 +161,6 @@ def score(gadget: list[np.ndarray], k: int, exact: bool = False, backend: str = 
         val = math.log2(r) + math.log2(c)
         if val > worst:
             worst, worst_t = val, t
-    return Score(k, worst / (4 * k), worst_t, 2 ** (worst / k), groups)
+    # A gadget on lam0-bit strings, raised to the k-th power, acts on strings of lam = k * lam0 bits.
+    lam = k * int(round(math.log2(gadget[0].shape[0])))
+    return Score(k, worst / (4 * lam), worst_t, 2 ** (worst / lam), groups)

@@ -1,5 +1,5 @@
 diff --git a/lakefile.lean b/lakefile.lean
-index 99a17ff..b241eab 100644
+index 99a17ff..36d6d47 100644
 --- a/lakefile.lean
 +++ b/lakefile.lean
 @@ -48,6 +48,17 @@ unsafe def hesperNoCudaImpl : Bool :=
@@ -33,7 +33,7 @@ index 99a17ff..b241eab 100644
            "-lobjc",
            "-framework", "CoreFoundation",
            "-framework", "Metal",
-@@ -1715,3 +1726,8 @@ lean_exe «wgsl-check» where
+@@ -1715,3 +1726,13 @@ lean_exe «wgsl-check» where
    srcDir := "tools"
    root := `WgslCheck.Main
    supportInterpreter := false
@@ -41,4 +41,9 @@ index 99a17ff..b241eab 100644
 +-- Exact-rank-mod-p kernel for /math/piece-search (overlay; see the /math README).
 +lean_exe «gpu-rank» where
 +  root := `GpuRank.Main
++  moreLinkArgs := stdLinkArgs
++
++-- Memcomputing-style dynamical 3-SAT solver for /math/sat-kernel (overlay; see the /math README).
++lean_exe «gpu-sat» where
++  root := `GpuSat.Main
 +  moreLinkArgs := stdLinkArgs

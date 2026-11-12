@@ -31,6 +31,11 @@ It adds three things.
 3. **`gpu-rank`: the search's exact-rank step on the GPU**, written with Hesper, and benchmarks
    showing whether it is faster. It is, from matrix size 1024 up: scoring a gadget at k = 6 takes
    12 s instead of 116 s (9.7×), with identical ranks (see below).
+4. **`sat-kernel/`: SAT solvers as the search kernel.** The fastest solvers of SAT Competition
+   2025, built from the competition archives, find pieces through a SAT encoding, and a GPU solver
+   (`gpu-sat`, Hesper) runs the parallel dynamics of
+   [lightspeed-3-SAT-solver](https://github.com/jkgoodworks/lightspeed-3-SAT-solver). A race
+   between the two returns the first verified answer (see [the SAT kernel](#the-sat-kernel)).
 
 ## What has and has not been found
 
@@ -41,11 +46,17 @@ It adds three things.
   4^λ/poly(λ). That forces ρ ≥ 1/2 (the definition in `AppRunningTimeStatement.lean` assumes it),
   so the best this route could ever give is 2^O(n·log log n/log n). This argument is not
   formalized here.
-- **No gadget beats the baseline.** The paper's singlet decomposition (SWAP = I − S) scores
-  ρ̂ = 0.711, 0.758, 0.764 at k = 3, 4, 5. A random search over 20,000 three-term gadgets with
+- **No gadget beats the baseline asymptotically.** The paper's singlet decomposition (SWAP = I − S)
+  scores ρ̂ = 0.711, 0.758, 0.764 at k = 3, 4, 5. A random search over 20,000 three-term gadgets with
   entries in [−1, 1] found nothing below 0.9255 at k = 3. Small-k scores also understate the
   asymptotic value (the singlet's rises from 0.50 at k = 1 to 0.79 at k = 6), so a candidate must
   beat the baseline at every k it is scored at.
+- **The SAT kernel beats the singlet at one size, but not under tensor powers.** On 2-bit strings,
+  three pieces of rank 6 × 6 sum to SWAP (the singlet's grouping needs 7 × 7); the solver finds
+  them in 0.2 s and they pass an exact check. Raised to tensor powers they lose: ρ̂ = 0.646, 0.738,
+  0.818 at λ = 2, 4, 6 against the singlet's 0.702, 0.758, 0.787.
+- **The fastest SAT solvers are exponential, as expected.** On random 3-SAT at ratio 4.26 all three
+  go from under 0.3 s at n = 200 to timing out (120 s) on 3 of 5 instances at n = 350.
 
 ## Reproducing everything
 
@@ -111,6 +122,20 @@ cd piece-search
 .venv/bin/python search.py --samples 20000 --terms 3 --bound 1 --seed 1
 ```
 
+### 5. The SAT kernel (solvers build in about 15 seconds)
+
+```sh
+sat-kernel/build_solvers.sh                        # AE-Kissat-MAB, Kissat-public, CaDiCaL-SC2025
+cd sat-kernel
+PY=../piece-search/.venv/bin/python
+$PY scaling.py --timeout 120                       # ~25 min; writes scaling_results.md
+$PY kernel_bench.py --timeout 900                  # ~30 min; writes kernel_results.md
+$PY gpu_bench.py --timeout 120                     # ~15 min; needs gpu-sat; writes gpu_results.md
+$PY score_found.py                                 # ~1 min; needs gpu-rank; writes found_results.md
+```
+
+`scripts/build-gpu.sh` (step 3) also builds `gpu-sat`.
+
 ## Does Hesper speed things up?
 
 Only the rank computations, and only for large matrices. Nothing here speeds up Lean: proof
@@ -158,6 +183,108 @@ How to read this:
   `pieces.score` takes the larger rank over two primes on either backend, and a candidate that
   looks good should be rechecked with `score(..., exact=True)` (exact rank over the integers).
 
+## The SAT kernel
+
+### Which solver is fastest
+
+Best solvers of the last three SAT Competitions (sequential main track, PAR-2 score, lower is
+better): 2025 from the official [results slides](https://satcompetition.github.io/2025/satcomp25slides.pdf);
+2023 and 2024 from sorting the score columns of the
+[2023](https://satcompetition.github.io/2023/results.html) and
+[2024](https://satcompetition.github.io/2024/results.html) results pages. The benchmark sets differ
+by year, so the solved counts do not compare across years:
+
+| Year | Overall | Satisfiable | Unsatisfiable | Parallel |
+|---|---|---|---|---|
+| 2023 | SBVA-CaDiCaL (284 solved) | SBVA-CaDiCaL | KissatMabProp | PRS |
+| 2024 | kissat-sc2024 (306) | kissat-sc2024 | kissat-sc2024 | painless (Saoudi et al.) |
+| 2025 | **AE-Kissat-MAB** (327) | AE-Kissat-MAB | CaDiCaL-SC2025 | MallobSat |
+
+All are CDCL solvers of the Kissat/CaDiCaL family. `sat-kernel/build_solvers.sh` builds the top
+three of 2025 (AE-Kissat-MAB, Kissat-public, CaDiCaL-SC2025) from the competition archives, checked
+by SHA-256. On the hard piece instance below, AE-Kissat-MAB was also the fastest (563 s against
+896 s for Kissat-public; CaDiCaL timed out at 900 s), so it is the CPU engine of the kernel.
+
+MallobSat, the 2025 parallel winner, is described in
+[Schreiber, Rigi-Luperti and Biere, SAT 2025](https://drops.dagstuhl.de/storage/00lipics/lipics-vol341-sat2025/LIPIcs.SAT.2025.27/LIPIcs.SAT.2025.27.pdf):
+pure CDCL threads with light diversification and clause sharing, preprocessing once next to the
+search, on up to 3072 CPU cores. It notes that GPU attempts at CDCL reached speedups of about 1.5
+because SAT solving's program flow is irregular.
+
+### Pieces as SAT (`encode_pieces.py`, `kernel_bench.py`)
+
+Pieces A_1 … A_J summing to SWAP, each given by explicit row-wise and column-wise factorizations
+with entries in {−1, 0, 1} (the shape of Lean's `FactorsThrough`), become CNF through product gates
+and totalizers. Every SAT answer is checked by exact ranks; every λ = 1 case with a known answer
+comes out right. At λ = 2 with 3 pieces (timeout 900 s):
+
+| shapes (R_j, C_j) | largest rank product | result |
+|---|---|---|
+| (16,1), (8,8), (1,16): the singlet's shape | 64 | all solvers time out |
+| (6,6), (6,6), (6,6) | 36 | found in 0.2 s, verified |
+| (5,5), (5,5), (6,6) | 36 | found in 0.2 s, verified |
+| (8,4), (4,8), (6,6) | 36 | found by AE-Kissat-MAB in 563 s, verified |
+| (5,5), (5,5), (5,5) | 25 | impossible by rank, but no solver proves it in 900 s |
+
+The last row is CDCL's known blind spot: rank arguments have no short resolution proofs.
+`score_found.py` then scores the found decompositions as gadgets on 2-bit blocks under tensor
+powers, with the GPU rank kernel; the table is in `sat-kernel/found_results.md`.
+
+### The GPU solver (`gpu-sat`, `gpu_sat.py`)
+
+[lightspeed-3-SAT-solver](https://github.com/jkgoodworks/lightspeed-3-SAT-solver) integrates a
+memcomputing-style dynamical system (after arXiv:2011.06551): continuous variables in [−1, 1], a
+short and a long memory per clause, Euler steps with momentum and an adaptive time step. It
+parallelizes one CUDA thread per clause (scattering to variables with float `atomicAdd`) and one
+per variable. `hesper/GpuSat/Main.lean` runs the same dynamics, with lightspeed's tuned constants,
+in WGSL through Hesper. WGSL has no float atomics, so each variable gathers its clause terms
+through an occurrence list instead, which also makes runs deterministic. The GPU trajectory matches
+a NumPy copy of the dynamics (`gpu_sat.reference`) to 1.4×10⁻⁶ after 20 steps, with identical signs.
+
+Two things to know about these dynamics:
+
+- **They are incomplete.** They can find a satisfying assignment, never prove that none exists.
+- **Lightspeed's benchmark instances are easy.** Its generator plants a solution and flips each
+  literal away from it with probability 0.35, so majority voting alone satisfies 98.5% of the
+  clauses. On uniform random 3-SAT the dynamics solve ratio 4.0 up to n = 100,000, but at 4.2 they
+  fail from n = 10,000 on; they also fail on every piece instance tried, which CDCL solves in
+  under 0.1 s.
+
+### Does the GPU help? (`gpu_bench.py`, full output in `sat-kernel/gpu_results.md`)
+
+**Same algorithm, CPU (NumPy) vs GPU (Hesper).** The GPU is 4–5× faster from n = 100,000 on. At
+n = 10,000 starting the process and WebGPU costs more than the whole computation. On uniform
+instances the two runs drift apart in float rounding and take different numbers of steps, so the
+time per step is the fair comparison there:
+
+| instance | CPU (NumPy) | GPU (Hesper), wall | speedup |
+|---|---|---|---|
+| planted, n = 100,000 (50 steps each) | 0.72 s | 0.15 s | 4.8× |
+| planted, n = 500,000 (60 steps each) | 4.38 s | 1.05 s | 4.2× |
+| uniform 4.0, n = 10,000 | 1.20 ms/step | 0.17 ms/step | 7.0× per step |
+
+**GPU dynamics vs AE-Kissat-MAB on the CPU, and the race** (timeout 120 s; every SAT answer
+checked against every clause):
+
+| instance | AE-Kissat-MAB alone | GPU dynamics alone | race (winner) |
+|---|---|---|---|
+| planted, n = 100,000 | 1.68 s | 0.27 s | 0.56 s (GPU) |
+| planted, n = 500,000 | 14.87 s | 2.96 s | 5.02 s (GPU) |
+| uniform 4.0, n = 10,000 | 12.55 s | 0.45 s | 0.49 s (GPU) |
+| uniform 4.0, n = 100,000 | timeout | 34.02 s | 35.36 s (GPU) |
+| uniform 4.2, n = 1,000 | 23.09 s | 0.19 s | 0.26 s (GPU) |
+| uniform 4.2, n = 10,000 | 109.47 s | timeout | 111.59 s (CPU) |
+| piece instance, λ = 1, (4,1), (1,4) | 0.04 s | timeout | 0.05 s (CPU) |
+| piece instance, λ = 1, (2,2), (2,2) | 0.02 s | timeout | 0.01 s (CPU) |
+
+So the GPU wins on random-like satisfiable formulas, sometimes by more than 20×. The CPU winner
+wins near the threshold at n = 10,000 and on the structured piece formulas, and it alone can
+answer UNSAT. The race costs a little over the faster engine alone, mostly because `kernel.py`
+writes the CPU's DIMACS file before starting the GPU.
+
+None of this bears on polynomial time: the GPU dynamics are a heuristic that fails on harder
+formulas, and both engines slow down sharply as n grows.
+
 ## Layout
 
 | Path | What it is |
@@ -171,7 +298,12 @@ How to read this:
 | `piece-search/search.py` | Random search over gadgets, compared with the singlet baseline at each k |
 | `piece-search/gpu_rank.py` | Python wrapper for `gpu-rank` |
 | `piece-search/bench.py`, `bench_score.py` | The benchmarks; results in `bench_results.md` |
-| `scripts/` | `verify-lean.sh`, `build-gpu.sh`, `bench.sh` |
+| `overlays/hesper/GpuSat/Main.lean` | The GPU SAT solver: lightspeed's dynamics in WGSL, run through Hesper |
+| `sat-kernel/build_solvers.sh` | Downloads (SHA-256 checked) and builds the top 2025 competition solvers |
+| `sat-kernel/satlib.py`, `scaling.py` | Instance generators, solver runner; scaling on random 3-SAT and pigeonhole |
+| `sat-kernel/encode_pieces.py`, `kernel_bench.py`, `score_found.py` | Pieces as SAT; solvers compared on them; tensor-power scores of what they find |
+| `sat-kernel/gpu_sat.py`, `kernel.py`, `gpu_bench.py` | GPU solver wrapper and NumPy reference; the CPU/GPU race; its benchmark |
+| `scripts/` | `verify-lean.sh`, `build-gpu.sh` (builds `gpu-rank` and `gpu-sat`), `bench.sh` |
 
 ## Licences
 

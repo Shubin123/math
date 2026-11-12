@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Hesper (Dawn and its native bridge on first use) and the gpu-rank executable.
+# Build Hesper (Dawn and its native bridge on first use) and the gpu-rank and gpu-sat executables.
 #
 # Lean's bundled lld cannot read the .tbd stubs of macOS SDKs that list the arm64e.x1
 # architecture (macOS 27 SDKs). If the default SDK is such an SDK and HESPER_MACOS_SDK is unset,
@@ -23,5 +23,5 @@ if [ "$(uname)" = Darwin ] && [ -z "${HESPER_MACOS_SDK:-}" ]; then
   fi
 fi
 echo "HESPER_MACOS_SDK=${HESPER_MACOS_SDK:-<default>}"
-lake build gpu-rank
-ls -la .lake/build/bin/gpu-rank
+lake build gpu-rank gpu-sat
+ls -la .lake/build/bin/gpu-rank .lake/build/bin/gpu-sat

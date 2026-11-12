@@ -9,3 +9,7 @@ __pycache__/
 *.pyc
 
 .DS_Store
+
+# SAT solvers built by sat-kernel/build_solvers.sh, and run outputs
+sat-kernel/solvers/
+sat-kernel/*.log
